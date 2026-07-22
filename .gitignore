@@ -1,0 +1,24 @@
+# 社外秘データファイル（リポジトリには含めない）
+①*.xlsx
+②*.csv
+③*
+④*.xlsx
+*GOODS_CODE*.xlsx
+*委託返却リスト*.csv
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Streamlit
+.streamlit/
+
+# Claude Code ローカル設定
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
