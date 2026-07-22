@@ -1,7 +1,5 @@
 import datetime
-import glob
 import io
-import os
 
 import pandas as pd
 import streamlit as st
@@ -11,45 +9,20 @@ from core.pdf_labels import generate_labels_pdf
 
 st.set_page_config(page_title="JANバーコードラベル自動生成", layout="wide")
 st.title("JANバーコードラベル自動生成")
-st.caption("②ZOZO委託返却リストをアップロードすると、①andSTマスタと自動照合してラベルPDFを生成します。")
-
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def find_master_candidates():
-    patterns = [
-        os.path.join(APP_DIR, "*GOODS_CODE*.xlsx"),
-        os.path.join(APP_DIR, "①*.xlsx"),
-    ]
-    files = []
-    for p in patterns:
-        files.extend(glob.glob(p))
-    # 重複除去・除外(一時ファイル)
-    files = sorted({f for f in files if not os.path.basename(f).startswith("~$")})
-    return files
-
+st.caption("①andSTマスタと②ZOZO委託返却リストをアップロードすると、自動照合してラベルPDFを生成します。")
 
 with st.sidebar:
-    st.header("①andSTマスタデータ")
-    candidates = find_master_candidates()
-    if candidates:
-        master_path = st.selectbox(
-            "マスタxlsxファイル",
-            options=candidates,
-            format_func=os.path.basename,
-        )
-    else:
-        st.warning("マスタxlsxが自動検出できませんでした。パスを直接入力してください。")
-        master_path = st.text_input("マスタxlsxのパス", value="")
-
-    st.divider()
     st.header("対象ブランド")
     st.write("、".join(TARGET_BRANDS))
 
-st.subheader("① ②ZOZO委託返却リストをアップロード")
-uploaded_csv = st.file_uploader("委託返却リスト (CSV / cp932)", type=["csv"])
+st.subheader("① andSTマスタデータ・②ZOZO委託返却リストをアップロード")
+col_upload1, col_upload2 = st.columns(2)
+with col_upload1:
+    uploaded_master = st.file_uploader("①andSTマスタ (xlsx)", type=["xlsx"])
+with col_upload2:
+    uploaded_csv = st.file_uploader("②委託返却リスト (CSV / cp932)", type=["csv"])
 
-run_button = st.button("照合を実行", type="primary", disabled=not (uploaded_csv and master_path))
+run_button = st.button("照合を実行", type="primary", disabled=not (uploaded_csv and uploaded_master))
 
 if "matched" not in st.session_state:
     st.session_state.matched = None
@@ -57,29 +30,25 @@ if "matched" not in st.session_state:
     st.session_state.skus = None
 
 if run_button:
-    if not master_path or not os.path.exists(master_path):
-        st.error(f"マスタxlsxが見つかりません: {master_path}")
+    with st.spinner("①マスタを読み込み中..."):
+        master_index = load_master(io.BytesIO(uploaded_master.getvalue()))
+
+    with st.spinner("②委託返却リストを読み込み中..."):
+        zozo_df = load_zozo_list(io.BytesIO(uploaded_csv.getvalue()))
+
+    if zozo_df.empty:
+        st.warning("対象4ブランドのデータが見つかりませんでした。")
+        st.session_state.matched = []
+        st.session_state.unmatched = []
+        st.session_state.skus = []
     else:
-        with st.spinner("①マスタを読み込み中..."):
-            master_index = load_master(master_path)
+        with st.spinner("照合中..."):
+            matched, unmatched = run_matching(master_index, zozo_df)
+            skus = dedupe_skus(matched)
 
-        with st.spinner("②委託返却リストを読み込み中..."):
-            csv_bytes = uploaded_csv.getvalue()
-            zozo_df = load_zozo_list(io.BytesIO(csv_bytes))
-
-        if zozo_df.empty:
-            st.warning("対象4ブランドのデータが見つかりませんでした。")
-            st.session_state.matched = []
-            st.session_state.unmatched = []
-            st.session_state.skus = []
-        else:
-            with st.spinner("照合中..."):
-                matched, unmatched = run_matching(master_index, zozo_df)
-                skus = dedupe_skus(matched)
-
-            st.session_state.matched = matched
-            st.session_state.unmatched = unmatched
-            st.session_state.skus = skus
+        st.session_state.matched = matched
+        st.session_state.unmatched = unmatched
+        st.session_state.skus = skus
 
 if st.session_state.matched is not None:
     matched = st.session_state.matched
