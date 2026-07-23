@@ -4,8 +4,11 @@ import io
 import pandas as pd
 import streamlit as st
 
+from core import gdrive
 from core.matching import load_master, load_zozo_list, run_matching, dedupe_skus, TARGET_BRANDS
-from core.pdf_labels import generate_labels_pdf
+from core.pdf_labels import generate_labels_zip
+
+DRIVE_FOLDER_ID = "0ACoZiydC-wX3Uk9PVA"
 
 st.set_page_config(page_title="JANバーコードラベル自動生成", layout="wide")
 st.title("JANバーコードラベル自動生成")
@@ -28,6 +31,9 @@ if "matched" not in st.session_state:
     st.session_state.matched = None
     st.session_state.unmatched = None
     st.session_state.skus = None
+    st.session_state.zip_bytes = None
+    st.session_state.zip_filename = None
+    st.session_state.gdrive_status = None
 
 if run_button:
     with st.spinner("①マスタを読み込み中..."):
@@ -41,6 +47,9 @@ if run_button:
         st.session_state.matched = []
         st.session_state.unmatched = []
         st.session_state.skus = []
+        st.session_state.zip_bytes = None
+        st.session_state.zip_filename = None
+        st.session_state.gdrive_status = None
     else:
         with st.spinner("照合中..."):
             matched, unmatched = run_matching(master_index, zozo_df)
@@ -49,6 +58,31 @@ if run_button:
         st.session_state.matched = matched
         st.session_state.unmatched = unmatched
         st.session_state.skus = skus
+
+        if skus:
+            with st.spinner("ラベルPDFを生成中..."):
+                zip_buffer = io.BytesIO()
+                generate_labels_zip(skus, zip_buffer)
+                zip_bytes = zip_buffer.getvalue()
+                today_str = datetime.date.today().strftime("%Y%m%d")
+                zip_filename = f"{today_str}_バーコード.zip"
+
+            st.session_state.zip_bytes = zip_bytes
+            st.session_state.zip_filename = zip_filename
+
+            if gdrive.is_configured():
+                with st.spinner("Googleドライブへアップロード中..."):
+                    try:
+                        link = gdrive.upload_zip(zip_bytes, zip_filename, DRIVE_FOLDER_ID)
+                        st.session_state.gdrive_status = ("success", link)
+                    except Exception as e:
+                        st.session_state.gdrive_status = ("error", str(e))
+            else:
+                st.session_state.gdrive_status = ("not_configured", None)
+        else:
+            st.session_state.zip_bytes = None
+            st.session_state.zip_filename = None
+            st.session_state.gdrive_status = None
 
 if st.session_state.matched is not None:
     matched = st.session_state.matched
@@ -79,17 +113,24 @@ if st.session_state.matched is not None:
     col_pdf, col_csv = st.columns(2)
 
     with col_pdf:
-        if skus:
-            pdf_buffer = io.BytesIO()
-            generate_labels_pdf(skus, pdf_buffer)
-            today_str = datetime.date.today().strftime("%Y%m%d")
+        if skus and st.session_state.zip_bytes:
             st.download_button(
-                "ラベルPDFをダウンロード",
-                data=pdf_buffer.getvalue(),
-                file_name=f"{today_str}_バーコード.pdf",
-                mime="application/pdf",
+                "ラベルPDF(ZIP)をダウンロード",
+                data=st.session_state.zip_bytes,
+                file_name=st.session_state.zip_filename,
+                mime="application/zip",
                 type="primary",
             )
+
+            status = st.session_state.gdrive_status
+            if status is None:
+                pass
+            elif status[0] == "success":
+                st.success(f"Googleドライブへ自動アップロード済みです。[ファイルを開く]({status[1]})")
+            elif status[0] == "not_configured":
+                st.info("Googleドライブ連携が未設定のため、自動アップロードはスキップされました。")
+            else:
+                st.error(f"Googleドライブへのアップロードに失敗しました: {status[1]}")
         else:
             st.info("生成できるラベルがありません。")
 

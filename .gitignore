@@ -6,6 +6,8 @@
 *GOODS_CODE*.xlsx
 *委託返却リスト*.csv
 *.pdf
+*.zip
+*.log
 
 # Python
 __pycache__/

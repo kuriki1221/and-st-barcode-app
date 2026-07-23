@@ -4,8 +4,10 @@ JANバーコードラベルPDF生成
 用紙: A-one L24AM500N (A4 / 24面 / 3列x8段 / 1片70mm x 33.9mm)
 1SKU = 1ページ（24面すべてに同じラベルをrepeat）
 """
+import io
 import os
 import re
+import zipfile
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
@@ -103,6 +105,28 @@ def _draw_label_cell(c, x, y, text, jan):
     renderPDF.draw(d, c, bx, by)
 
 
+_INVALID_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|]')
+
+
+def sku_filename(row):
+    """SKU1件分のPDFファイル名を生成する（品番の"/"は"-"に置換、その他不正文字は除去）"""
+    hinban = str(row["hinban"]).replace("/", "-")
+    color_name = _INVALID_FILENAME_CHARS.sub("", str(row["color_name"]))
+    size_name = _INVALID_FILENAME_CHARS.sub("", str(row["size_name"]))
+    return f"{hinban}_{color_name}_{size_name}.pdf"
+
+
+def _render_sku_page(c, row):
+    text = f"{row['hinban']}-{row['color_name']}-{row['size_name']}"
+    jan = row["jan"]
+    for r in range(ROWS):
+        for col in range(COLS):
+            x = col * LABEL_W
+            y = PAGE_H - MARGIN_Y - (r + 1) * LABEL_H
+            _draw_label_cell(c, x, y, text, jan)
+    c.showPage()
+
+
 def generate_labels_pdf(sku_rows, output_path):
     """
     sku_rows: [{"hinban":..., "color_name":..., "size_name":..., "jan":...}, ...]
@@ -114,13 +138,21 @@ def generate_labels_pdf(sku_rows, output_path):
     c = canvas.Canvas(output_path, pagesize=A4)
 
     for row in sku_rows:
-        text = f"{row['hinban']}-{row['color_name']}-{row['size_name']}"
-        jan = row["jan"]
-        for r in range(ROWS):
-            for col in range(COLS):
-                x = col * LABEL_W
-                y = PAGE_H - MARGIN_Y - (r + 1) * LABEL_H
-                _draw_label_cell(c, x, y, text, jan)
-        c.showPage()
+        _render_sku_page(c, row)
 
     c.save()
+
+
+def generate_labels_zip(sku_rows, output_path):
+    """
+    sku_rows: [{"hinban":..., "color_name":..., "size_name":..., "jan":...}, ...]
+    SKUごとに個別PDF（24面すべてに同一内容の1ページ）を作り、ZIPにまとめる。
+    """
+    _ensure_font()
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for row in sku_rows:
+            buf = io.BytesIO()
+            c = canvas.Canvas(buf, pagesize=A4)
+            _render_sku_page(c, row)
+            c.save()
+            zf.writestr(sku_filename(row), buf.getvalue())
