@@ -36,7 +36,9 @@ MARGIN_Y = (PAGE_H - ROWS * LABEL_H) / 2
 
 TEXT_AREA_W = 30 * mm
 PADDING = 1.5 * mm
-FONT_SIZE = 8
+TEXT_LEFT_PADDING = 3.5 * mm
+WRAP_SAFETY_MARGIN = 1.0 * mm
+FONT_SIZE = 7
 LINE_HEIGHT = FONT_SIZE * 1.2
 
 
@@ -73,8 +75,8 @@ def _wrap_text(text, max_width):
 
 def _draw_label_cell(c, x, y, text, jan):
     """x, y はセル左下座標"""
-    text_x = x + PADDING
-    text_max_w = TEXT_AREA_W - 2 * PADDING
+    text_x = x + TEXT_LEFT_PADDING
+    text_max_w = TEXT_AREA_W - TEXT_LEFT_PADDING - PADDING - WRAP_SAFETY_MARGIN
     lines = _wrap_text(text, text_max_w)
     total_h = LINE_HEIGHT * len(lines)
     start_y = y + LABEL_H / 2 + total_h / 2 - FONT_SIZE * 0.85
